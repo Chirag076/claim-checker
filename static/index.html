@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claim Checker</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e3de;
+    --accent: #2f5bd3; --ok: #1f7a4d; --ok-bg: #e6f4ec; --warn: #9a6200; --warn-bg: #fdf3dc;
+    --bad: #b3261e; --bad-bg: #fbe9e7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151514; --card: #1f1f1d; --text: #ecece8; --muted: #9b9b95; --line: #33332f;
+      --accent: #7d9cf0; --ok: #6cc79a; --ok-bg: #173226; --warn: #e3b25c; --warn-bg: #352a14;
+      --bad: #f08a80; --bad-bg: #3a1c19;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  .label-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .link { background: none; padding: 0; color: var(--accent); font-weight: 600; font-size: 13px; }
+  textarea.dragging { border-color: var(--accent); outline: 2px dashed var(--accent); }
+  textarea { width: 100%; min-height: 280px; padding: 12px; border: 1px solid var(--line);
+             border-radius: 10px; background: var(--card); color: var(--text);
+             font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; resize: vertical; }
+  .actions { display: flex; gap: 10px; align-items: center; margin: 16px 0 28px; flex-wrap: wrap; }
+  button { border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  .primary { background: var(--accent); color: #fff; }
+  .secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button:disabled { opacity: .6; cursor: wait; }
+  #status { color: var(--muted); }
+  .summary { padding: 14px 16px; border-radius: 10px; margin-bottom: 14px; font-weight: 600; }
+  .summary.ok { background: var(--ok-bg); color: var(--ok); }
+  .summary.bad { background: var(--bad-bg); color: var(--bad); }
+  .claim { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+           padding: 14px 16px; margin-bottom: 10px; }
+  .claim-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+  .supported { background: var(--ok-bg); color: var(--ok); }
+  .not_found { background: var(--warn-bg); color: var(--warn); }
+  .contradicted { background: var(--bad-bg); color: var(--bad); }
+  .text { font-weight: 600; }
+  .reason { color: var(--muted); margin-top: 4px; }
+  .evidence { margin-top: 8px; padding: 6px 10px; border-left: 3px solid var(--line);
+              font-size: 13px; color: var(--muted); }
+  .by-code { font-size: 12px; color: var(--muted); }
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Claim Checker</h1>
+  <p class="sub">Paste a resume and a draft outreach email. Every claim the email makes about the candidate is
+    checked against the resume before it gets sent.</p>
+
+  <div class="grid">
+    <div>
+      <div class="label-row">
+        <label for="resume">Resume</label>
+        <button class="link" id="upload-btn" type="button">Upload PDF, DOCX or TXT</button>
+        <input type="file" id="upload" accept=".pdf,.docx,.txt,.md" hidden>
+      </div>
+      <textarea id="resume" placeholder="Paste the resume as plain text, upload a file or drop it here"></textarea>
+    </div>
+    <div>
+      <label for="email">Draft email</label>
+      <textarea id="email" placeholder="Paste the draft email"></textarea>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="check">Check claims</button>
+    <button class="secondary" id="example">Load example</button>
+    <span id="status" role="status"></span>
+  </div>
+
+  <section id="results" aria-live="polite"></section>
+
+  <footer>
+    "Supported" needs an exact quote that the code finds in the resume, and every number must match.
+    The model can flag a claim, but only real evidence can clear it.
+    API docs at <a href="/docs">/docs</a>.
+  </footer>
+</main>
+
+<script>
+const EXAMPLE_RESUME = `Aarav Mehta
+Backend Developer | Bengaluru
+
+EXPERIENCE
+Finly (fintech startup), Backend Developer, Jan 2024 to present
+- Built payment reconciliation APIs in Python and FastAPI on PostgreSQL
+- Cut p95 API latency by 40% by adding Redis caching
+- Led a team of 3 engineers on the merchant dashboard
+- Set up Docker and GitHub Actions CI for 6 services
+
+Kredo, Software Engineer Intern, Jun 2023 to Dec 2023
+- Built a React admin panel used by 25 support agents
+
+SKILLS
+Python, FastAPI, PostgreSQL, Redis, Docker, GitHub Actions, React, TypeScript, AWS (EC2, S3)
+
+EDUCATION
+BCA, Christ University, Bengaluru, 2023`;
+
+const EXAMPLE_EMAIL = `Hi Priya,
+
+Your team is scaling payouts fast, and that is where reconciliation breaks.
+At Finly I built payment reconciliation APIs in FastAPI and cut p95 latency by 60% with Redis caching.
+I led a team of 3 engineers and ran our Kubernetes cluster in production.
+I have a B.Tech from Christ University.
+
+Can join immediately.
+Aarav`;
+
+const $ = (id) => document.getElementById(id);
+const LABELS = { supported: "Supported", not_found: "Not in resume", contradicted: "Contradicts resume" };
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function render(data) {
+  const order = { contradicted: 0, not_found: 1, supported: 2 };
+  const claims = [...data.claims].sort((a, b) => order[a.status] - order[b.status]);
+  const flagged = data.counts.not_found + data.counts.contradicted;
+  const summary = claims.length === 0
+    ? `<div class="summary ok">No claims about the candidate found in this email.</div>`
+    : flagged === 0
+      ? `<div class="summary ok">All ${claims.length} claims are backed by the resume. Safe to send.</div>`
+      : `<div class="summary bad">${flagged} of ${claims.length} claims aren't backed by the resume. Fix them before sending.</div>`;
+  $("results").innerHTML = summary + claims.map((c) => `
+    <div class="claim">
+      <div class="claim-head">
+        <span class="badge ${esc(c.status)}">${LABELS[c.status] || esc(c.status)}</span>
+        <span class="text">${esc(c.claim)}</span>
+      </div>
+      <div class="reason">${esc(c.reason)}${c.checked_by === "code" ? ' <span class="by-code">(caught by the code check)</span>' : ""}</div>
+      ${c.evidence ? `<div class="evidence">Resume: "${esc(c.evidence)}"</div>` : ""}
+    </div>`).join("");
+}
+
+async function runCheck() {
+  const resume = $("resume").value.trim(), email = $("email").value.trim();
+  if (!resume || !email) { $("status").textContent = "Paste both the resume and the draft email."; return; }
+  $("check").disabled = true;
+  $("status").textContent = "Checking... the first check can take up to a minute while the server wakes up.";
+  $("results").innerHTML = "";
+  try {
+    const res = await fetch("/check", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resume, email }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Something went wrong.");
+    $("status").textContent = "";
+    render(data);
+  } catch (e) {
+    $("status").textContent = e.message;
+  } finally {
+    $("check").disabled = false;
+  }
+}
+
+async function uploadResume(file) {
+  if (!file) return;
+  $("status").textContent = `Reading ${file.name}...`;
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const res = await fetch("/extract", { method: "POST", body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Couldn't read this file.");
+    $("resume").value = data.text;
+    $("results").innerHTML = "";
+    $("status").textContent = `Loaded ${file.name}. Check the text looks right, then run the check.`;
+  } catch (e) {
+    $("status").textContent = e.message;
+  } finally {
+    $("upload").value = "";     // allow uploading the same file again
+  }
+}
+
+$("upload-btn").addEventListener("click", () => $("upload").click());
+$("upload").addEventListener("change", (e) => uploadResume(e.target.files[0]));
+const box = $("resume");
+box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("dragging"); });
+box.addEventListener("dragleave", () => box.classList.remove("dragging"));
+box.addEventListener("drop", (e) => {
+  e.preventDefault();
+  box.classList.remove("dragging");
+  uploadResume(e.dataTransfer.files[0]);
+});
+
+$("check").addEventListener("click", runCheck);
+$("example").addEventListener("click", () => {
+  $("resume").value = EXAMPLE_RESUME;
+  $("email").value = EXAMPLE_EMAIL;
+  $("results").innerHTML = "";
+  $("status").textContent = "";
+});
+</script>
+</body>
+</html>
