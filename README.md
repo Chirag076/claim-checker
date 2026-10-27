@@ -8,7 +8,7 @@ Claim Checker reads a resume (pasted, or uploaded as PDF, DOCX or TXT) and a dra
 
 ## Try it
 
-Live at **https://claim-checker.onrender.com** (Render free tier: the first check can take up to a minute while the server wakes up). Click **Load example** to see it catch an inflated metric, an invented skill and an upgraded degree.
+Live at **https://claims.evrrun.com** (Render free tier: the first check can take up to a minute while the server wakes up). Click **Load example** to see it catch an inflated metric, an invented skill and an upgraded degree.
 
 ## How it works
 
